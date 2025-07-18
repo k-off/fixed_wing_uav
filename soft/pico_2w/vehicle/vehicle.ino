@@ -67,9 +67,12 @@ void setup() {
 #endif
 }
 
+// prepare infos to be sent to the controller here
+// crc must be added after all fields
+// encryption must be done after crc added
 void update_payload() {
-  // do stuff here
   txPayload.crc16 = crc16_ccitt((const uint8_t*)&txPayload, sizeof(txPayload) - 2);
+  encrypt_payload((uint32_t*)&txPayload, sizeof(txPayload), keys[VEHICLE]);
 }
 
 void transmit() {
@@ -80,7 +83,6 @@ void transmit() {
   bool report = radio.write(&txPayload, sizeof(VPayload)); 
   end_timer = micros();
 
-  
   txTotal += 1;
   if (report) {
 #ifndef NDEBUG
@@ -105,6 +107,7 @@ void receive() {
     uint8_t bytes = radio.getPayloadSize();
     radio.read(&rxPayload, bytes);
     rxTotal += 1;
+    decrypt_payload((uint32_t*)&rxPayload, sizeof(rxPayload), keys[!VEHICLE]);
     if (rxPayload.crc16 != crc16_ccitt((const uint8_t*)&rxPayload, sizeof(rxPayload) - 2)) {
       rxFail += 1;
       Serial.println(rxPayload.crc16);

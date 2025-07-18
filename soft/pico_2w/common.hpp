@@ -41,8 +41,16 @@ struct CPayload {
 
 
 enum Role { CONTROLLER, VEHICLE };
+
 // address of the vehicle and controller
+// TODO: GENERATE NEW ADDRESSES EVERY TIME
 uint8_t gAddr[][6] = {"ctrl1", "vhcl1"};
+
+// TODO: GENERATE NEW KEYS EVERY TIME
+const uint32_t keys[2][4] {
+  {0xA56BABCD, 0x0000FFFF, 0xABCDEF01, 0x12345678},
+  {0x1F2E3D4C, 0x5A6B7C8D, 0x9ABCDEF0, 0x0FEDCBA9}
+};
 
 // default pico 2w SPI0 pins
 constexpr const uint8_t gCsPin   = 17u;  // chip select
@@ -88,4 +96,61 @@ uint16_t crc16_ccitt(const uint8_t* data, uint16_t length) {
     }
     
     return crc;
+}
+
+/* ******************************************************************** */
+/*      XTEA: extended tiny encryption algorythm, weak but fast         */
+/* ******************************************************************** */
+
+#define ROUNDS 32
+#define DELTA 0x9E3779B9
+
+void encrypt(uint32_t* v, const uint32_t* k) {
+    uint32_t v0 = v[0], v1 = v[1];
+    uint32_t sum = 0;
+
+    for (uint32_t i = 0; i < ROUNDS; i++) {
+        v0 += (((v1 << 4) ^ (v1 >> 5)) + v1) ^ (sum + k[sum & 3]);
+        sum += DELTA;
+        v1 += (((v0 << 4) ^ (v0 >> 5)) + v0) ^ (sum + k[(sum >> 11) & 3]);
+    }
+
+    v[0] = v0;
+    v[1] = v1;
+}      
+
+void decrypt(uint32_t* v, const uint32_t* k) {
+    uint32_t v0 = v[0], v1 = v[1];
+    uint32_t sum = DELTA * ROUNDS;
+
+    for (uint32_t i = 0; i < ROUNDS; i++) {
+        v1 -= (((v0 << 4) ^ (v0 >> 5)) + v0) ^ (sum + k[(sum >> 11) & 3]);
+        sum -= DELTA;
+        v0 -= (((v1 << 4) ^ (v1 >> 5)) + v1) ^ (sum + k[sum & 3]);
+    }
+
+    v[0] = v0;
+    v[1] = v1;
+}
+
+/**
+ * Pass a pointer to payload casted into uint32_t*
+ * ie encrypt_payload((uint32_t*)&txPayload, sizeof(txPayload), key);
+ * make sure size of the payload is multiple of 8
+ */
+void encrypt_payload(uint32_t* payload, uint8_t payload_size, const uint32_t* key) {
+  for(uint8_t i = 0; i < payload_size / 4; i += 2) {
+    encrypt(&payload[i], key);
+  }
+}
+
+/**
+ * Pass a pointer to payload casted into uint32_t*
+ * ie decrypt_payload((uint32_t*)&rxPayload, sizeof(rxPayload), key);
+ * make sure size of the payload is multiple of 8
+ */
+void decrypt_payload(uint32_t* payload, uint8_t payload_size, const uint32_t* key) {
+  for(uint8_t i = 0; i < payload_size / 4; i += 2) {
+    decrypt(&payload[i], key);
+  }
 }

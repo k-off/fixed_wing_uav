@@ -94,7 +94,7 @@ void transmit() {
   radio.stopListening();
   delayMicroseconds(130);
   start_timer = micros();
-  bool report = radio.write(&txPayload, sizeof(VPayload));
+  bool report = radio.write(&txPayload, sizeof(CPayload));
   end_timer = micros();
 
   if (report) {
@@ -119,10 +119,18 @@ void transmit() {
 void receive() {
   rxTotal += 1;
   uint8_t pipe;
-  while (!radio.available(&pipe) && micros() - end_timer < gRxTimeoutUS ) ;
+  while (!radio.available(&pipe) && micros() - end_timer < gRxTimeoutUS) ;
   if (radio.available(&pipe)) {
     uint8_t bytes = radio.getPayloadSize();
     radio.read(&rxPayload, bytes);
+    decrypt_payload((uint32_t*)&rxPayload, sizeof(rxPayload), keys[!CONTROLLER]);
+    if (rxPayload.crc16 != crc16_ccitt((const uint8_t*)&rxPayload, sizeof(rxPayload) - 2)) {
+#ifndef NDEBUG
+      rxPayload.println();
+      rxFail += 1;
+#endif
+      rxPayload = {};
+    }
 #ifndef NDEBUG
     Serial.print(F("Received "));
     Serial.print(bytes);
@@ -158,6 +166,9 @@ void tick_alive() {
   }
 }
 
+// prepare infos to be sent to the vehicle here
+// crc must be added after all fields
+// encryptrion must be done after crc added
 void update_payload() {
   joy1.update();
   txPayload.m1 = joy1.x;
@@ -168,7 +179,7 @@ void update_payload() {
   txPayload.s1 = joy1.y;
   txPayload.s2 = joy1.btn;
   txPayload.crc16 = crc16_ccitt((const uint8_t*)&txPayload, sizeof(txPayload) - 2);
-  // TODO: add packet encryption
+  encrypt_payload((uint32_t*)&txPayload, sizeof(txPayload), keys[CONTROLLER]);
 }
 
 void loop() {
